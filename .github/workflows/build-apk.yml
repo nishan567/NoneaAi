@@ -1,0 +1,64 @@
+name: Build Nonea AI APK
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Extract Android App from Repo Archive
+        run: |
+          mkdir -p android_build
+          if [ -f "public/assets/aistudio/NoneaAI-v2_3-apps_96df31c7.zip" ]; then
+            echo "Extracting Android project from repository archive..."
+            unzip -q -o public/assets/aistudio/NoneaAI-v2_3-apps_96df31c7.zip -d android_build
+          fi
+          APP_DIR=$(find . -name "settings.gradle.kts" -exec dirname {} \; | head -n 1)
+          if [ -z "$APP_DIR" ]; then
+            echo "Error: Could not locate Android project root with settings.gradle.kts!"
+            exit 1
+          fi
+          echo "Found Android app in: $APP_DIR"
+          echo "APP_DIR=$APP_DIR" >> $GITHUB_ENV
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - name: Accept Android SDK Licenses
+        run: |
+          yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses || true
+
+      - name: Setup Gradle 8.7
+        uses: gradle/actions/setup-gradle@v3
+        with:
+          gradle-version: '8.7'
+          cache-disabled: true
+
+      - name: Build Debug APK
+        run: |
+          cd "$APP_DIR"
+          # Write local.properties so AGP directly resolves Android SDK path
+          echo "sdk.dir=$ANDROID_HOME" > local.properties
+          echo "Building inside: $(pwd)"
+          gradle assembleDebug --no-daemon --stacktrace --info -x test -x checkNoSecrets --no-build-cache
+
+      - name: Upload Debug APK Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: NoneaAI-debug-apk
+          path: "**/app/build/outputs/apk/debug/*.apk"
+          if-no-files-found: error
+          retention-days: 14
+          
